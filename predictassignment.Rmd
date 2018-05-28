@@ -1,0 +1,144 @@
+---
+title: "Prediction Assignment"
+output: html_notebook
+---
+
+# Resume
+In this write-up of a prediction problem where the objective is to predict the quality of how a weightlifting exercise is executer based on motion censors.
+
+# Setup
+In this initial step I will load packages and data.
+
+```{r message= FALSE, eval = FALSE}
+library(caret)
+library(tidyverse)
+library(randomForest)
+library(gbm)
+library(rpart)
+library(data.table)
+#setwd("path/to/wd")
+
+url.training <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url.testing <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- as.data.frame(fread(url.training, na.strings = c("NA", ""))[,-1])
+testing <- as.data.frame(fread(url.testing, na.strings = c("NA", ""))[,-1])
+
+#clean up
+rm(url.training, url.testing)
+
+```
+
+
+# Create training, testing and validation set
+I will use the originally defined testing set as validation in order to estimate the out of sample error. The training set will be split 80/20 keeping the original distribution of the class variable.
+
+```{r eval = FALSE}
+
+validation <- testing
+
+set.seed(123)
+intrain <- createDataPartition(training$classe, p = 0.8)[[1]]
+
+training = training[intrain,]
+testing = training[-intrain,]
+
+```
+
+The validation set is 20 rows, testing set is 3147 rows and the training set is 15699 rows.
+
+
+# Explore training set
+
+It is now time to explore the data. Usually it is not custom to explore the validation set. However in this case, only 59 of the 159 features exists in the validation set. This means that 100 columns have only NA values. So before exploring the training set, I subset it to only contain the 59 features that are in the validation set.
+
+```{r eval = FALSE}
+# remove columns with only NAs fram validation set
+validation[sapply(validation, function(x) all(is.na(x)))] <- NULL
+columns <- as.character(colnames(validation))
+columns <- c("classe", columns[-59])
+
+# subset training and testing set
+training <- training %>% select(one_of(columns))
+testing <- testing %>% select(one_of(columns))
+
+# explore
+str(training)
+sum(is.na(training))
+
+training$classe <- as.factor(training$classe)
+testing$classe <- as.factor(testing$classe)
+```
+
+
+# Feature selection
+
+The 6 first columns concern a user_name and some time related features. In the paper "Qualitative Activity Recognition of Weight Lifting Exercises", http://web.archive.org/web/20170519033209/http://groupware.les.inf.puc-rio.br:80/public/papers/2013.Velloso.QAR-WLE.pdf, there is a description of how features was created. For this prediction task, I assume that the mentioned 6 features are irrelevant.
+
+```{r eval = FALSE}
+training <- training[, c(1, 8:length(training))]
+testing <- testing[, c(1, 8:length(testing))]
+validation <- validation[, 7:length(validation)]
+```
+
+# Build models
+I will build a random forest model, a general boosting model and a tree model
+
+```{r eval = FALSE}
+set.seed(345)
+fit.rf <- randomForest(classe~., data = training, do.trace =10)
+saveRDS(fit.rf, file = "fit_rf.RDS")
+
+set.seed(345)
+fit.gbm <- train(classe~. , method = "gbm", data = training, verbose = TRUE)
+saveRDS(fit.gbm, file = "fit_gbm.RDS")
+
+set.seed(345)
+fit.rpart <- train(classe~., method = "rpart", data = training)
+saveRDS(fit.rpart, file = "fit_rpart.RDS")
+
+```
+
+# Evaluate models on testing set
+I am performing an out of sample test on 20% of the original training data.
+
+
+```{r}
+fit.rf <-  readRDS("fit_rf.RDS")
+fit.gbm <-  readRDS("fit_gbm.RDS")
+fit.rpart <-  readRDS("fit_rpart.RDS")
+
+pred.rf <- predict(fit.rf, testing[,-1])
+pred.gbm <- predict(fit.gbm, testing[,-1])
+pred.rpart <- predict(fit.rpart, testing[,-1])
+
+confusionMatrix(pred.rf, testing[,1])$overall
+confusionMatrix(pred.gbm, testing[,1])$overall
+confusionMatrix(pred.rpart, testing[,1])$overall
+
+```
+
+# Choose model
+The random forest model is 100% accurate on this particular test set. Thus I will choose this model without further tuning. 
+
+
+# apply on validation set
+
+```{r}
+
+val.rf <- predict(fit.rf, validation)
+val.rf
+
+
+```
+
+
+<!-- 
+Rmarkdown instructions
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+-->
